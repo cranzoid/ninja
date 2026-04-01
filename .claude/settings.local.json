@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \":*)",
+      "Bash(python3 -m pytest tests/services/test_rule_engine.py -x --tb=short)"
+    ]
+  }
+}
