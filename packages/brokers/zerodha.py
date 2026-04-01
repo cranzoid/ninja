@@ -7,12 +7,15 @@ Every call is logged as AuditEvent.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import time
 import uuid
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import httpx
 
@@ -51,15 +54,41 @@ class ZerodhaAdapter:
         config: BrokerConfig,
         audit_ledger: AuditLedger,
         mode: Mode = Mode.LIVE,
+        data_dir: Path | None = None,
     ) -> None:
         self._config = config
         self._ledger = audit_ledger
         self._mode = mode
+        self._data_dir = data_dir
         self._session: BrokerSession | None = None
         self._access_token: str | None = None
         self._api_key: str | None = None
         # Track submitted idempotency keys -> OrderRecord for dedup
         self._submitted_orders: dict[str, OrderRecord] = {}
+
+    def _session_file(self) -> Path | None:
+        if self._data_dir is None:
+            return None
+        return self._data_dir / "zerodha_session.json"
+
+    def _load_persisted_session(self) -> dict[str, object] | None:
+        path = self._session_file()
+        if path is None or not path.exists():
+            return None
+        try:
+            raw = json.loads(path.read_text())
+            data = raw.get("data")
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def save_persisted_session(self, payload: dict[str, object]) -> None:
+        path = self._session_file()
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        wrapped = {"saved_at_utc": datetime.now(UTC).isoformat(), "data": payload}
+        path.write_text(json.dumps(wrapped, indent=2))
 
     async def _log_event(
         self,
@@ -173,9 +202,9 @@ class ZerodhaAdapter:
     async def authenticate(self) -> BrokerSession:
         """Authenticate with Zerodha Kite API.
 
-        Reads ZERODHA_API_KEY, ZERODHA_API_SECRET, ZERODHA_REQUEST_TOKEN
-        from environment. Caches session internally — re-authenticates
-        only if expired.
+        Tries persisted session first (written by /api/broker/callback).
+        Falls back to exchanging ZERODHA_REQUEST_TOKEN if no persisted session.
+        Caches session internally — re-authenticates only if expired.
         """
         # Return cached session if still valid
         if (
@@ -185,22 +214,62 @@ class ZerodhaAdapter:
             return self._session
 
         api_key = os.environ.get("ZERODHA_API_KEY")
+        if not api_key:
+            raise BrokerAuthError(
+                "Missing required environment variable: ZERODHA_API_KEY"
+            )
+
+        # Zerodha sessions expire at 6:00 AM IST next day
+        now_ist = datetime.now(_IST)
+        tomorrow_6am_ist = (now_ist + timedelta(days=1)).replace(
+            hour=6, minute=0, second=0, microsecond=0
+        )
+        expires_at = tomorrow_6am_ist.astimezone(UTC)
+
+        # Path 1: reuse persisted access_token from callback flow
+        persisted = self._load_persisted_session()
+        if persisted:
+            access_token = persisted.get("access_token")
+            if access_token and isinstance(access_token, str):
+                self._api_key = api_key
+                self._access_token = access_token
+                self._session = BrokerSession(
+                    session_id=str(uuid.uuid4()),
+                    expires_at=expires_at,
+                    broker_name="zerodha",
+                    is_live=not self._config.dry_run,
+                )
+                await self._log_event(
+                    "broker_authenticate",
+                    {
+                        "broker_name": "zerodha",
+                        "auth_mode": "persisted_access_token",
+                        "dry_run": self._config.dry_run,
+                        "success": True,
+                    },
+                )
+                return self._session
+
+        # Path 2: exchange request_token (manual / first-time flow)
         api_secret = os.environ.get("ZERODHA_API_SECRET")
         request_token = os.environ.get("ZERODHA_REQUEST_TOKEN")
 
         missing: list[str] = []
-        if not api_key:
-            missing.append("ZERODHA_API_KEY")
         if not api_secret:
             missing.append("ZERODHA_API_SECRET")
         if not request_token:
             missing.append("ZERODHA_REQUEST_TOKEN")
         if missing:
             raise BrokerAuthError(
-                f"Missing required environment variables: {', '.join(missing)}"
+                f"No persisted session found and missing env vars: {', '.join(missing)}. "
+                "Complete the login flow via /api/broker/login-url first."
             )
 
         self._api_key = api_key
+
+        checksum = hashlib.sha256(
+            f"{api_key}{request_token}{api_secret}".encode()
+        ).hexdigest()
 
         start = time.monotonic()
         try:
@@ -210,7 +279,7 @@ class ZerodhaAdapter:
                 data={
                     "api_key": api_key,
                     "request_token": request_token,
-                    "checksum": api_secret,
+                    "checksum": checksum,
                 },
                 require_auth=False,
             )
@@ -229,13 +298,6 @@ class ZerodhaAdapter:
         if not self._access_token:
             raise BrokerAuthError("No access_token in auth response")
 
-        # Zerodha sessions expire at 6:00 AM IST next day
-        now_ist = datetime.now(_IST)
-        tomorrow_6am_ist = (now_ist + timedelta(days=1)).replace(
-            hour=6, minute=0, second=0, microsecond=0
-        )
-        expires_at = tomorrow_6am_ist.astimezone(UTC)
-
         self._session = BrokerSession(
             session_id=str(uuid.uuid4()),
             expires_at=expires_at,
@@ -247,6 +309,7 @@ class ZerodhaAdapter:
             "broker_authenticate",
             {
                 "broker_name": "zerodha",
+                "auth_mode": "request_token_exchange",
                 "dry_run": self._config.dry_run,
                 "latency_ms": latency_ms,
                 "success": True,

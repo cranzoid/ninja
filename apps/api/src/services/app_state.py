@@ -291,6 +291,7 @@ class AppState:
             config=zerodha_config,
             audit_ledger=audit_ledger,
             mode=config.mode,
+            data_dir=data_dir / "broker",
         )
         live_reconciler = LiveReconciler()
         live_orchestrator = LiveEODOrchestrator(
