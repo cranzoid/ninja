@@ -23,6 +23,7 @@ from packages.contracts.order_intent import OrderIntent
 from packages.contracts.order_state import OrderRecord
 from packages.contracts.portfolio import PortfolioState
 from packages.contracts.regime_state import RegimeState
+from packages.model_router.blocker_provider import LLMBlockerProvider
 from packages.utils.env_guard import EnvironmentGuard
 from services.audit_ledger.ledger import AuditLedger
 from services.candidate_engine.core_scanner import scan_core_candidates
@@ -71,11 +72,12 @@ class ShadowLiveRunner:
         mock_broker: MockBrokerAdapter,
         audit_ledger: AuditLedger,
         universe_symbols: list[str] | None = None,
+        blocker_provider: LLMBlockerProvider | None = None,
     ) -> None:
         self._data_provider = data_provider
         self._broker = mock_broker
         self._ledger = audit_ledger
-        self._blocker_provider = StubBlockerProvider()
+        self._blocker_provider = blocker_provider or StubBlockerProvider()
         self._universe = universe_symbols or [
             "RELIANCE", "TCS", "INFY", "HDFCBANK", "SBIN",
         ]

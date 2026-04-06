@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from packages.contracts.enums import Mode, OrderSide, OrderStatus
+from packages.contracts.broker import ShadowRunReport
 from packages.contracts.eod_report import EODRunReport
 from packages.contracts.regime_state import RegimeState
 
@@ -45,6 +46,7 @@ class DashboardData(BaseModel):
     total_realized_pnl: Decimal
     pending_orders: int
     last_eod_run: EODRunReport | None
+    last_shadow_run: ShadowRunReport | None
     alerts_count_today: int
     system_health: SystemHealth
 
@@ -86,8 +88,9 @@ async def get_dashboard(
     # Regime
     regime = state.get_latest_regime()
 
-    # Last EOD run
+    # Last EOD run (paper) and last shadow run
     last_run = state.get_latest_eod_report()
+    last_shadow = state.shadow_run_history[-1] if state.shadow_run_history else None
     open_risk = last_run.portfolio_risk.open_risk_pct if last_run else Decimal("0")
 
     # Today's alerts
@@ -102,12 +105,23 @@ async def get_dashboard(
     except Exception:
         ledger_ok = False
 
+    # For health indicators, prefer the shadow run when it exists
+    health_run_successful = (
+        last_shadow.is_successful
+        if last_shadow is not None
+        else (last_run.is_successful if last_run else False)
+    )
+    health_run_time = (
+        last_shadow.completed_at
+        if last_shadow is not None
+        else (last_run.completed_at if last_run else None)
+    )
     health = SystemHealth(
-        data_feed_fresh=True,  # fixture provider is always "fresh"
+        data_feed_fresh=True,
         broker_healthy=broker_ok,
         ledger_healthy=ledger_ok,
-        last_run_successful=last_run.is_successful if last_run else False,
-        last_run_time=last_run.completed_at if last_run else None,
+        last_run_successful=health_run_successful,
+        last_run_time=health_run_time,
     )
 
     data = DashboardData(
@@ -123,6 +137,7 @@ async def get_dashboard(
         total_realized_pnl=realized,
         pending_orders=pending_count,
         last_eod_run=last_run,
+        last_shadow_run=last_shadow,
         alerts_count_today=alerts_today,
         system_health=health,
     )

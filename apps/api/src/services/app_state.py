@@ -64,6 +64,7 @@ from packages.model_router.trade_card_generator import TradeCardGenerator
 from services.audit_ledger.ledger import AuditLedger
 from services.audit_ledger.reconciler import LedgerReconciler
 from services.data_ingest.providers.fixture_provider import FixtureMarketDataProvider
+from services.data_ingest.providers.yfinance_provider import YFinanceMarketDataProvider
 from services.paper_broker.broker import PaperBroker
 from services.paper_broker.eod_orchestrator import EODOrchestrator
 from services.paper_broker.simulation_runner import PaperSimulationRunner
@@ -189,6 +190,9 @@ class AppState:
         data_dir.mkdir(parents=True, exist_ok=True)
 
         data_provider = FixtureMarketDataProvider()
+        shadow_data_provider: FixtureMarketDataProvider | YFinanceMarketDataProvider = (
+            YFinanceMarketDataProvider() if config.mode != Mode.PAPER else data_provider
+        )
 
         broker_config = PaperBrokerConfig(data_dir=data_dir / "broker")
         paper_broker = PaperBroker(broker_config)
@@ -276,9 +280,10 @@ class AppState:
         )
 
         shadow_runner = ShadowLiveRunner(
-            data_provider=data_provider,
+            data_provider=shadow_data_provider,
             mock_broker=mock_broker,
             audit_ledger=audit_ledger,
+            blocker_provider=blocker_provider,
         )
 
         # Phase 7: Live trading components

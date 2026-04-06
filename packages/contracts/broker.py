@@ -96,6 +96,10 @@ class ShadowRunReport(BaseModel):
 
     errors: list[str]
 
+    @property
+    def is_successful(self) -> bool:
+        return len(self.errors) == 0
+
 
 class BrokerAuthError(Exception):
     """Raised when broker authentication fails."""
