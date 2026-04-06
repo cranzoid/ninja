@@ -9,12 +9,15 @@ Execution executes. Operator supervises."
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from packages.contracts.enums import Mode
 
 from .routers import (
     alerts,
@@ -41,7 +44,13 @@ from .services.app_state import AppState, make_default_config
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Initialize AppState at startup if not already set (e.g., by tests)."""
     if not hasattr(app.state, "app_state"):
-        cfg = make_default_config()
+        raw_mode = os.environ.get("MODE", Mode.PAPER.value)
+        try:
+            mode = Mode(raw_mode)
+        except ValueError:
+            mode = Mode.PAPER
+        armed_live = os.environ.get("ARMED_LIVE", "false").lower() == "true"
+        cfg = make_default_config(mode=mode, armed_live=armed_live)
         state = await AppState.initialize(Path("./data"), cfg)
         app.state.app_state = state
     yield

@@ -28,6 +28,11 @@ env/
 
 # Node
 node_modules/
+package-lock.json
+.next/
+
+# Next.js generated (auto-regenerated, not source of truth)
+next-env.d.ts
 
 # Terraform
 .terraform/
@@ -43,3 +48,13 @@ htmlcov/
 
 # Ruff
 .ruff_cache/
+
+# Runtime data
+apps/api/data/
+
+# Zerodha credentials (never commit)
+.zerodha_access_token
+*.pem
+
+# Scratch files
+test_bedrock.py

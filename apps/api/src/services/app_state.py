@@ -75,14 +75,17 @@ def _make_config_checksum(risk_limits: RiskLimits) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
-def make_default_config(mode: Mode = Mode.PAPER) -> ConfigSnapshot:
+def make_default_config(
+    mode: Mode = Mode.PAPER,
+    armed_live: bool = False,
+) -> ConfigSnapshot:
     """Create a default ConfigSnapshot for startup."""
     risk_limits = RiskLimits()
     return ConfigSnapshot(
         snapshot_id=str(uuid.uuid4()),
         captured_at=datetime.now(UTC),
         mode=mode,
-        armed_live=False,
+        armed_live=armed_live,
         risk_limits=risk_limits,
         regime_state=RegimeClass.MIXED,
         universe_size=5,
