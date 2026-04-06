@@ -290,7 +290,8 @@ class AppState:
         review_gate = OperatorReviewGate(audit_ledger=audit_ledger)
         zerodha_config = BrokerConfig(
             broker_name="zerodha",
-            base_url=os.environ.get("ZERODHA_BASE_URL", "https://api.kite.trade"),
+            base_url=os.environ.get(
+                "ZERODHA_BASE_URL", "https://api.kite.trade"),
             timeout_seconds=30,
             max_retries=3,
             dry_run=config.mode != Mode.LIVE or not config.armed_live,
@@ -345,7 +346,7 @@ class AppState:
         env_keys = [
             k for k in os.environ
             if k in {
-                "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AWS_REGION",
                 "ZERODHA_API_KEY", "ZERODHA_API_SECRET",
                 "ZERODHA_REQUEST_TOKEN",
                 "STATIC_IP_WHITELIST", "KILL_SWITCH",
