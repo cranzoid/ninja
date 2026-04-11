@@ -51,7 +51,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             mode = Mode.PAPER
         armed_live = os.environ.get("ARMED_LIVE", "false").lower() == "true"
         cfg = make_default_config(mode=mode, armed_live=armed_live)
-        state = await AppState.initialize(Path("./data"), cfg)
+        # Anchor to project root (3 levels up from apps/api/src/) so the data
+        # dir is always /project-root/data regardless of cwd at launch time.
+        project_root = Path(__file__).resolve().parents[3]
+        state = await AppState.initialize(project_root / "data", cfg)
         app.state.app_state = state
     yield
 
