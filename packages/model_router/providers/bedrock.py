@@ -29,10 +29,10 @@ _IST = ZoneInfo("Asia/Kolkata")
 
 BEDROCK_MODEL_IDS: dict[str, str] = {
     "claude-sonnet": (
-        "anthropic.claude-3-5-sonnet-20241022-v2:0"  # Tier 2 — hard reasoning
+        "global.anthropic.claude-sonnet-4-5-20250929-v1:0"  # Tier 2 — hard reasoning
     ),
     "claude-haiku": (
-        "anthropic.claude-3-5-haiku-20241022-v1:0"  # Tier 1/3 — fast, cheap
+        "global.anthropic.claude-haiku-4-5-20251001-v1:0"  # Tier 1/3 — fast, cheap
     ),
 }
 

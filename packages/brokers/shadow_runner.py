@@ -61,9 +61,10 @@ class ShadowLiveRunner:
     """Runs the full EOD workflow in shadow mode.
 
     Uses the real regime engine, real candidate engine, real rule engine,
-    and real model router (with FixtureProvider in shadow mode).
+    and real LLM providers (BedrockProvider primary in shadow/live mode).
     All generated OrderIntents are passed to the dry-run broker — logged
-    but never submitted.
+    but never submitted. Only the broker adapter is stubbed; the LLM path
+    exercises the production stack so shadow runs faithfully simulate live.
     """
 
     def __init__(

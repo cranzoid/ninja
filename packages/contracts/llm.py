@@ -155,21 +155,21 @@ DEFAULT_ROLE_ROUTING: dict[ModelRole, RoleRouting] = {
     ModelRole.BLOCKER_SCAN: RoleRouting(
         primary="bedrock",
         fallback="anthropic",
-        model_id="anthropic.claude-3-5-haiku-20241022-v1:0",
+        model_id="global.anthropic.claude-haiku-4-5-20251001-v1:0",
     ),
     ModelRole.TRADE_CARD: RoleRouting(
         primary="bedrock",
         fallback="anthropic",
-        model_id="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        model_id="global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     ),
     ModelRole.EXPLANATION: RoleRouting(
         primary="bedrock",
         fallback="openai",
-        model_id="anthropic.claude-3-5-haiku-20241022-v1:0",
+        model_id="global.anthropic.claude-haiku-4-5-20251001-v1:0",
     ),
     ModelRole.CRITIQUE: RoleRouting(
         primary="bedrock",
         fallback="anthropic",
-        model_id="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        model_id="global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     ),
 }

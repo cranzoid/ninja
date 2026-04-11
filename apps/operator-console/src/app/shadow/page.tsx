@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { SkeletonCard } from '@/components/ui/SkeletonLoader';
 import { useApi } from '@/hooks/useApi';
-import type { ShadowRunReport, PaginatedResponse, APIResponse } from '@/lib/types';
+import { fetchApi } from '@/lib/api';
+import type { ShadowRunReport, PaginatedResponse } from '@/lib/types';
 import { formatDateTime } from '@/lib/utils';
 
 function formatIST(dateStr: string): string {
@@ -41,12 +42,10 @@ export default function ShadowPage() {
     setRunError(null);
     setResult(null);
     try {
-      const res = await fetch('/api/shadow/run-eod', {
+      const json = await fetchApi<ShadowRunReport>('/api/shadow/run-eod', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trading_date: tradingDate }),
       });
-      const json: APIResponse<ShadowRunReport> = await res.json();
       if (json.success && json.data) {
         setResult(json.data);
         refetchRuns();

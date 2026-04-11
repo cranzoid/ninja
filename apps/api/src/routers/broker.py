@@ -26,14 +26,19 @@ router = APIRouter(prefix="/api/broker", tags=["broker"])
 async def get_broker_health(
     state: Annotated[AppState, Depends(get_app_state)],
 ) -> APIResponse[BrokerHealth]:
-    """Return broker adapter health status."""
-    if state.mock_broker is None:
+    """Return broker adapter health status.
+
+    In shadow/live mode returns real ZerodhaAdapter health (live latency).
+    In paper mode returns MockBrokerAdapter health.
+    """
+    broker = state.active_broker
+    if broker is None:
         return APIResponse[BrokerHealth](
             success=False, error="No broker adapter configured."
         )
 
     try:
-        health = await state.mock_broker.healthcheck()
+        health = await broker.healthcheck()
         return APIResponse[BrokerHealth](success=True, data=health)
     except Exception as e:
         return APIResponse[BrokerHealth](
@@ -45,19 +50,24 @@ async def get_broker_health(
 async def get_broker_session(
     state: Annotated[AppState, Depends(get_app_state)],
 ) -> APIResponse[BrokerSession]:
-    """Return current broker session info (without credentials)."""
-    if state.mock_broker is None:
+    """Return current broker session info (without credentials).
+
+    In shadow/live mode returns ZerodhaAdapter session status.
+    In paper mode returns MockBrokerAdapter session.
+    """
+    broker = state.active_broker
+    if broker is None:
         return APIResponse[BrokerSession](
             success=False, error="No broker adapter configured."
         )
 
-    if state.mock_broker._session is None:
+    if broker._session is None:
         return APIResponse[BrokerSession](
             success=False, error="No active broker session."
         )
 
     return APIResponse[BrokerSession](
-        success=True, data=state.mock_broker._session
+        success=True, data=broker._session
     )
 
 

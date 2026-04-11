@@ -7,7 +7,8 @@ import { StatusDot } from '@/components/ui/StatusDot';
 import { Button } from '@/components/ui/Button';
 import { SkeletonCard } from '@/components/ui/SkeletonLoader';
 import { useApi } from '@/hooks/useApi';
-import type { ComplianceReport, ComplianceResult, ComplianceCheckStatus } from '@/lib/types';
+import { fetchApi } from '@/lib/api';
+import type { ComplianceStatusResponse, ComplianceResult, ComplianceCheckStatus } from '@/lib/types';
 import { formatDateTime, modeLabel } from '@/lib/utils';
 import { useState } from 'react';
 
@@ -51,7 +52,7 @@ function CheckRow({ check }: { check: ComplianceResult }) {
 }
 
 export default function CompliancePage() {
-  const { data, loading, error, refetch } = useApi<ComplianceReport>(
+  const { data, loading, error, refetch } = useApi<ComplianceStatusResponse>(
     '/api/compliance/status',
     { refreshInterval: 60_000 },
   );
@@ -60,7 +61,7 @@ export default function CompliancePage() {
   const handleRunCheck = async () => {
     setRunning(true);
     try {
-      await fetch('/api/compliance/run', { method: 'POST' });
+      await fetchApi<unknown>('/api/compliance/run', { method: 'POST' });
       refetch();
     } finally {
       setRunning(false);
@@ -75,7 +76,10 @@ export default function CompliancePage() {
     );
   }
 
-  const allBlockingPassed = data?.all_blocking_passed ?? false;
+  // data.live_ready is true only when MODE=live and all blocking checks pass.
+  // data.report.all_blocking_passed drives the individual check display.
+  const liveReady = data?.live_ready ?? false;
+  const allBlockingPassed = data?.report?.all_blocking_passed ?? false;
 
   return (
     <PageWrapper title="Compliance">
@@ -83,27 +87,27 @@ export default function CompliancePage() {
       <div
         className="rounded-sm p-5 mb-4 flex items-center gap-4"
         style={{
-          background: allBlockingPassed ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)',
-          border: allBlockingPassed
+          background: liveReady ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)',
+          border: liveReady
             ? '1px solid rgba(34,197,94,0.2)'
             : '1px solid rgba(239,68,68,0.2)',
         }}
       >
         <div
           className="text-3xl flex-shrink-0"
-          style={{ color: allBlockingPassed ? '#22c55e' : '#ef4444' }}
+          style={{ color: liveReady ? '#22c55e' : '#ef4444' }}
         >
-          {allBlockingPassed ? '✓' : '✗'}
+          {liveReady ? '✓' : '✗'}
         </div>
         <div className="flex-1">
           <div
             className="text-lg font-semibold font-mono"
-            style={{ color: allBlockingPassed ? '#22c55e' : '#ef4444' }}
+            style={{ color: liveReady ? '#22c55e' : '#ef4444' }}
           >
-            {allBlockingPassed ? 'ALL BLOCKING CHECKS PASSED — READY TO ARM' : 'BLOCKING CHECKS FAILED — LIVE ARMING PREVENTED'}
+            {liveReady ? 'LIVE READY — ALL CHECKS PASSED' : allBlockingPassed ? 'CHECKS PASSED — NOT ARMED FOR LIVE' : 'BLOCKING CHECKS FAILED — LIVE ARMING PREVENTED'}
           </div>
           <div className="text-sm text-white/40 mt-0.5">
-            Mode: <span className="font-mono text-white/60">{data ? modeLabel(data.mode) : '—'}</span>
+            Mode: <span className="font-mono text-white/60">{data?.report ? modeLabel(data.report.mode) : '—'}</span>
           </div>
         </div>
         <Button variant="ghost" size="sm" onClick={handleRunCheck} disabled={running}>
@@ -122,11 +126,11 @@ export default function CompliancePage() {
 
       {/* Checks */}
       <Card title="Compliance Checks">
-        {(data?.results ?? []).length === 0 ? (
+        {(data?.report?.results ?? []).length === 0 ? (
           <div className="text-sm text-white/25 py-4 text-center">No checks available.</div>
         ) : (
           <div>
-            {data?.results.map((check) => (
+            {data?.report?.results.map((check) => (
               <CheckRow key={check.check_name} check={check} />
             ))}
           </div>
@@ -141,7 +145,7 @@ export default function CompliancePage() {
         >
           <div className="font-semibold uppercase tracking-wider text-white/25 mb-1">Passed</div>
           <div className="font-mono text-profit text-xl">
-            {data?.results.filter((c) => c.status === 'pass').length ?? 0}
+            {data?.report?.results.filter((c) => c.status === 'pass').length ?? 0}
           </div>
         </div>
         <div
@@ -150,7 +154,7 @@ export default function CompliancePage() {
         >
           <div className="font-semibold uppercase tracking-wider text-white/25 mb-1">Failed</div>
           <div className="font-mono text-loss text-xl">
-            {data?.results.filter((c) => c.status === 'fail').length ?? 0}
+            {data?.report?.results.filter((c) => c.status === 'fail').length ?? 0}
           </div>
         </div>
         <div
@@ -159,7 +163,7 @@ export default function CompliancePage() {
         >
           <div className="font-semibold uppercase tracking-wider text-white/25 mb-1">Warning</div>
           <div className="font-mono text-xl" style={{ color: '#f59e0b' }}>
-            {data?.results.filter((c) => c.status === 'warning').length ?? 0}
+            {data?.report?.results.filter((c) => c.status === 'warning').length ?? 0}
           </div>
         </div>
         <div
@@ -168,7 +172,7 @@ export default function CompliancePage() {
         >
           <div className="font-semibold uppercase tracking-wider text-white/25 mb-1">Skipped</div>
           <div className="font-mono text-white/40 text-xl">
-            {data?.results.filter((c) => c.status === 'skipped').length ?? 0}
+            {data?.report?.results.filter((c) => c.status === 'skipped').length ?? 0}
           </div>
         </div>
       </div>

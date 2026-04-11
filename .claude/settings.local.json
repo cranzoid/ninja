@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(python3 -c \":*)",
-      "Bash(python3 -m pytest tests/services/test_rule_engine.py -x --tb=short)"
+      "Bash(python3 -m pytest tests/services/test_rule_engine.py -x --tb=short)",
+      "Bash(grep -n \"class.*Response\\\\|class ComplianceReport\\\\|class BrokerHealth\" /Users/cranzoid/indian-trading-platform/packages/contracts/*.py)"
     ]
   }
 }

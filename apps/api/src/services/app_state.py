@@ -262,13 +262,35 @@ class AppState:
             mode=config.mode,
         )
 
+        # Phase 7: ZerodhaAdapter created early so compliance gate can use it
+        zerodha_config = BrokerConfig(
+            broker_name="zerodha",
+            base_url=os.environ.get(
+                "ZERODHA_BASE_URL", "https://api.kite.trade"),
+            timeout_seconds=30,
+            max_retries=3,
+            dry_run=config.mode != Mode.LIVE or not config.armed_live,
+        )
+        zerodha_adapter = ZerodhaAdapter(
+            config=zerodha_config,
+            audit_ledger=audit_ledger,
+            mode=config.mode,
+            data_dir=data_dir / "broker",
+        )
+
+        # In shadow/live mode, compliance broker checks run against ZerodhaAdapter
+        # so they reflect real broker reachability, not the mock.
+        compliance_broker = (
+            zerodha_adapter if config.mode != Mode.PAPER else mock_broker
+        )
+
         # Build compliance checks
         compliance_checks: list[ComplianceCheck] = [
             EnvVarsCheck(),
             KillSwitchCheck(),
             ModeFlagCheck(),
-            BrokerAuthCheck(broker_adapter=mock_broker),
-            BrokerHealthCheck(broker_adapter=mock_broker),
+            BrokerAuthCheck(broker_adapter=compliance_broker),
+            BrokerHealthCheck(broker_adapter=compliance_broker),
             AuditSinkCheck(audit_ledger=audit_ledger),
             ConfigChecksumCheck(),
             ClockCheck(),
@@ -286,22 +308,8 @@ class AppState:
             blocker_provider=blocker_provider,
         )
 
-        # Phase 7: Live trading components
+        # Phase 7: Live trading infrastructure
         review_gate = OperatorReviewGate(audit_ledger=audit_ledger)
-        zerodha_config = BrokerConfig(
-            broker_name="zerodha",
-            base_url=os.environ.get(
-                "ZERODHA_BASE_URL", "https://api.kite.trade"),
-            timeout_seconds=30,
-            max_retries=3,
-            dry_run=config.mode != Mode.LIVE or not config.armed_live,
-        )
-        zerodha_adapter = ZerodhaAdapter(
-            config=zerodha_config,
-            audit_ledger=audit_ledger,
-            mode=config.mode,
-            data_dir=data_dir / "broker",
-        )
         live_reconciler = LiveReconciler()
         live_orchestrator = LiveEODOrchestrator(
             data_provider=data_provider,
@@ -335,6 +343,17 @@ class AppState:
         instance.zerodha_adapter = zerodha_adapter
 
         return instance
+
+    @property
+    def active_broker(self) -> MockBrokerAdapter | ZerodhaAdapter | None:
+        """Return the live broker in shadow/live mode, mock broker otherwise.
+
+        Used by /api/broker/health and /api/broker/session so those endpoints
+        reflect real broker state in shadow/live mode rather than mock data.
+        """
+        if self.config.mode != Mode.PAPER and self.zerodha_adapter is not None:
+            return self.zerodha_adapter
+        return self.mock_broker
 
     # --- Phase 6: Compliance & Shadow ---
 
@@ -732,34 +751,32 @@ def _build_model_router_config(mode: Mode) -> ModelRouterConfig:
         max_retries=int(os.environ.get("PROVIDER_MAX_RETRIES", "2")),
     )
 
+    # Bedrock is always included in non-paper mode (charter §7.5: Bedrock-first).
+    # Health check will report is_healthy=False if credentials unavailable.
+    bedrock_cfg = ProviderConfig(
+        name="bedrock",
+        model_name=os.environ.get(
+            "BEDROCK_MODEL_ID",
+            "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        ),
+    )
+
     providers: dict[str, ProviderConfig] = {
         "anthropic": anthropic_cfg,
         "openai": openai_cfg,
+        "bedrock": bedrock_cfg,
     }
 
-    aws_region = os.environ.get("AWS_REGION")
-    if aws_region:
-        bedrock_cfg = ProviderConfig(
-            name="bedrock",
-            model_name=os.environ.get(
-                "BEDROCK_MODEL_ID",
-                "anthropic.claude-3-5-sonnet-20241022-v2:0",
-            ),
-        )
-        providers["bedrock"] = bedrock_cfg
-
-    # When Bedrock is available use DEFAULT_ROLE_ROUTING (bedrock primary);
-    # otherwise fall back to env-overridable anthropic-primary routing.
-    default_primary = "bedrock" if aws_region else "anthropic"
+    default_primary = "bedrock"
     default_fallback_map = {
         ModelRole.BLOCKER_SCAN: "anthropic",
         ModelRole.TRADE_CARD: "anthropic",
         ModelRole.EXPLANATION: "openai",
     }
     default_model_id_map = {
-        ModelRole.BLOCKER_SCAN: "anthropic.claude-3-5-haiku-20241022-v1:0",
-        ModelRole.TRADE_CARD: "anthropic.claude-3-5-sonnet-20241022-v2:0",
-        ModelRole.EXPLANATION: "anthropic.claude-3-5-haiku-20241022-v1:0",
+        ModelRole.BLOCKER_SCAN: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        ModelRole.TRADE_CARD: "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        ModelRole.EXPLANATION: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
     }
 
     def _get_routing(role: ModelRole, role_env_name: str) -> RoleRouting:
@@ -800,13 +817,14 @@ def _build_providers(mode: Mode) -> dict[str, LLMProvider]:
         return {"fixture": fixture}
 
     # Live/shadow-live: create real providers
-    import logging
     import os
 
     from packages.model_router.providers.anthropic import AnthropicProvider
+    from packages.model_router.providers.bedrock import (
+        BEDROCK_MODEL_IDS,
+        BedrockProvider,
+    )
     from packages.model_router.providers.openai import OpenAIProvider
-
-    _logger = logging.getLogger(__name__)
 
     providers: dict[str, LLMProvider] = {}
     providers["anthropic"] = AnthropicProvider(
@@ -815,22 +833,12 @@ def _build_providers(mode: Mode) -> dict[str, LLMProvider]:
     providers["openai"] = OpenAIProvider(
         model_name=os.environ.get("OPENAI_MODEL", "gpt-4o"),
     )
-
-    aws_region = os.environ.get("AWS_REGION")
-    if aws_region:
-        from packages.model_router.providers.bedrock import (
-            BEDROCK_MODEL_IDS,
-            BedrockProvider,
-        )
-
-        providers["bedrock"] = BedrockProvider(
-            model_id=os.environ.get(
-                "BEDROCK_MODEL_ID", BEDROCK_MODEL_IDS["claude-sonnet"]
-            ),
-        )
-    else:
-        _logger.warning(
-            "AWS_REGION not set — BedrockProvider skipped; live mode will use anthropic"
-        )
+    # Always include BedrockProvider in non-paper mode (charter §7.5: Bedrock-first).
+    # If credentials are unavailable, health_check() will report is_healthy=False.
+    providers["bedrock"] = BedrockProvider(
+        model_id=os.environ.get(
+            "BEDROCK_MODEL_ID", BEDROCK_MODEL_IDS["claude-sonnet"]
+        ),
+    )
 
     return providers

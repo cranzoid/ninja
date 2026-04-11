@@ -256,11 +256,11 @@ def test_bedrock_implements_llm_provider_protocol() -> None:
 
 # --- Test 8: ModelRouter routes BLOCKER_SCAN to bedrock with correct model_id ---
 def test_default_role_routing_blocker_scan_bedrock() -> None:
-    """DEFAULT_ROLE_ROUTING routes BLOCKER_SCAN to bedrock with haiku model."""
+    """DEFAULT_ROLE_ROUTING routes BLOCKER_SCAN to bedrock with haiku profile."""
     routing = DEFAULT_ROLE_ROUTING[ModelRole.BLOCKER_SCAN]
     assert routing.primary == "bedrock"
     assert routing.fallback == "anthropic"
-    assert routing.model_id == "anthropic.claude-3-5-haiku-20241022-v1:0"
+    assert routing.model_id == "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 
 # --- Test 9: ModelRouter fallback on BedrockProvider failure ---
@@ -475,14 +475,14 @@ def test_role_routing_model_id_optional() -> None:
 
 # --- Test 15: BEDROCK_MODEL_IDS dict contains expected models ---
 def test_bedrock_model_ids() -> None:
-    """BEDROCK_MODEL_IDS contains both Sonnet and Haiku models."""
+    """BEDROCK_MODEL_IDS contains both Sonnet and Haiku inference profile IDs."""
     assert "claude-sonnet" in BEDROCK_MODEL_IDS
     assert "claude-haiku" in BEDROCK_MODEL_IDS
     assert (
         BEDROCK_MODEL_IDS["claude-sonnet"]
-        == "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        == "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     )
     assert (
         BEDROCK_MODEL_IDS["claude-haiku"]
-        == "anthropic.claude-3-5-haiku-20241022-v1:0"
+        == "global.anthropic.claude-haiku-4-5-20251001-v1:0"
     )

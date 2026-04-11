@@ -9,8 +9,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
-from packages.contracts.enums import Mode, OrderSide, OrderStatus
 from packages.contracts.broker import ShadowRunReport
+from packages.contracts.enums import Mode, OrderSide, OrderStatus
 from packages.contracts.eod_report import EODRunReport
 from packages.contracts.regime_state import RegimeState
 
