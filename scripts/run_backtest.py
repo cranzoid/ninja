@@ -72,6 +72,34 @@ def _validate_data_dir() -> None:
         sys.exit(1)
 
 
+def _available_universe(full_universe: list[str]) -> list[str]:
+    """Return only symbols that have a Parquet file on disk.
+
+    Symbols that failed to download are excluded with a warning so the
+    EODOrchestrator loop never hits FileNotFoundError mid-run.
+    """
+    available = []
+    missing = []
+    for symbol in full_universe:
+        parquet = DATA_DIR / symbol / "ohlcv.parquet"
+        if parquet.exists():
+            available.append(symbol)
+        else:
+            missing.append(symbol)
+
+    if missing:
+        print(
+            f"WARNING: {len(missing)} symbol(s) have no Parquet file and will be "
+            f"excluded from the backtest: {', '.join(missing)}"
+        )
+        print(
+            "  Re-run scripts/download_historical.py --force to retry failed symbols."
+        )
+        print()
+
+    return available
+
+
 def _parse_date(value: str) -> date:
     return date.fromisoformat(value)
 
@@ -253,6 +281,14 @@ async def _run(start: date, end: date, initial_equity: Decimal) -> BacktestRepor
     tmp_dir = repo_root / "data" / "backtest_tmp" / run_id
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
+    universe = _available_universe(DEFAULT_UNIVERSE)
+    if not universe:
+        print(
+            "ERROR: No symbols have Parquet data. "
+            "Run scripts/download_historical.py first."
+        )
+        sys.exit(1)
+
     provider = HistoricalDataProvider(data_dir=DATA_DIR, as_of_date=end)
     broker = PaperBroker(PaperBrokerConfig(data_dir=tmp_dir / "broker"))
     ledger = AuditLedger(storage_dir=tmp_dir / "audit")
@@ -263,7 +299,7 @@ async def _run(start: date, end: date, initial_equity: Decimal) -> BacktestRepor
         paper_broker=broker,
         audit_ledger=ledger,
         stop_manager=stop_mgr,
-        universe_symbols=DEFAULT_UNIVERSE,
+        universe_symbols=universe,
     )
     runner = PaperSimulationRunner(orchestrator=orchestrator, data_dir=tmp_dir)
 
