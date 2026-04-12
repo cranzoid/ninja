@@ -109,7 +109,7 @@ def _parse_date(value: str) -> date:
 def _get_nifty_return(start: date, end: date) -> Decimal:
     """Fetch NIFTY 50 price return for the backtest period from yfinance."""
     try:
-        import yfinance as yf  # type: ignore[import-untyped]
+        import yfinance as yf
 
         df = yf.download(
             "^NSEI",
@@ -213,7 +213,7 @@ def _calc_trade_stats(
                                     "fill_price": Decimal(
                                         str(payload.get("fill_price", "0"))
                                     ),
-                                    "filled_qty": int(payload.get("filled_qty", 0)),  # type: ignore[arg-type]
+                                    "filled_qty": int(payload.get("filled_qty", 0)),
                                 }
                             )
             except Exception:

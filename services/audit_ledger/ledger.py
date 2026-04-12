@@ -33,11 +33,18 @@ class AuditLedger:
     async def record(self, event: AuditEvent, trading_date: date | None = None) -> None:
         """Record a single audit event.
 
-        When *trading_date* is provided the event timestamp is replaced with
-        midnight UTC on that date so backtest events are filed under the
-        simulated trading date rather than today's wall-clock date.
+        File organisation always uses ``event.timestamp.date()`` so that
+        existing ledger queries by date continue to work.
+
+        When *trading_date* is provided the event is serialised with its
+        timestamp replaced by midnight UTC on that date, so the audit trail
+        reflects the simulated trading date rather than today's wall-clock date.
         """
         try:
+            # Determine the file to write to BEFORE any timestamp override so
+            # that queries using the original wall-clock date still find events.
+            event_date = event.timestamp.date()
+            path = self._file_for_date(event_date)
             if trading_date is not None:
                 sim_ts = datetime(
                     trading_date.year,
@@ -47,8 +54,6 @@ class AuditLedger:
                     tzinfo=UTC,
                 )
                 event = event.model_copy(update={"timestamp": sim_ts})
-            event_date = event.timestamp.date()
-            path = self._file_for_date(event_date)
             line = event.model_dump_json() + "\n"
             with open(path, "a") as f:
                 f.write(line)
