@@ -9,7 +9,7 @@ Storage: JSON Lines (.jsonl) files, one per day. Append-only.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from packages.contracts.audit_event import AuditEvent
@@ -30,9 +30,23 @@ class AuditLedger:
     def _file_for_date(self, target_date: date) -> Path:
         return self._storage_dir / f"audit_{target_date.isoformat()}.jsonl"
 
-    async def record(self, event: AuditEvent) -> None:
-        """Record a single audit event."""
+    async def record(self, event: AuditEvent, trading_date: date | None = None) -> None:
+        """Record a single audit event.
+
+        When *trading_date* is provided the event timestamp is replaced with
+        midnight UTC on that date so backtest events are filed under the
+        simulated trading date rather than today's wall-clock date.
+        """
         try:
+            if trading_date is not None:
+                sim_ts = datetime(
+                    trading_date.year,
+                    trading_date.month,
+                    trading_date.day,
+                    0, 0, 0,
+                    tzinfo=UTC,
+                )
+                event = event.model_copy(update={"timestamp": sim_ts})
             event_date = event.timestamp.date()
             path = self._file_for_date(event_date)
             line = event.model_dump_json() + "\n"
@@ -41,10 +55,12 @@ class AuditLedger:
         except Exception:
             logger.exception("Failed to record audit event %s", event.event_id)
 
-    async def record_batch(self, events: list[AuditEvent]) -> None:
+    async def record_batch(
+        self, events: list[AuditEvent], trading_date: date | None = None
+    ) -> None:
         """Record a batch of audit events."""
         for event in events:
-            await self.record(event)
+            await self.record(event, trading_date=trading_date)
 
     async def query(
         self,

@@ -127,7 +127,7 @@ class EODOrchestrator:
         try:
             fill_events = await self._broker.simulate_fills(raw_data, trading_date)
             orders_filled = len(fill_events)
-            await self._ledger.record_batch(fill_events)
+            await self._ledger.record_batch(fill_events, trading_date=trading_date)
         except Exception as e:
             errors.append(f"simulate_fills: {e}")
             logger.exception("Failed to simulate fills")
@@ -166,7 +166,8 @@ class EODOrchestrator:
                         intent.symbol,
                         intent.intent_id,
                         {"order_id": record.order_id, "reason": "exit_rule_triggered"},
-                    )
+                    ),
+                    trading_date=trading_date,
                 )
         except Exception as e:
             errors.append(f"submit_exits: {e}")
@@ -254,7 +255,8 @@ class EODOrchestrator:
                                 "side": decision.order_intent.side.value,
                                 "quantity": decision.order_intent.quantity,
                             },
-                        )
+                        ),
+                        trading_date=trading_date,
                     )
                 else:
                     entries_rejected += 1
@@ -276,7 +278,8 @@ class EODOrchestrator:
                         intent.symbol,
                         intent.intent_id,
                         {"order_id": record.order_id},
-                    )
+                    ),
+                    trading_date=trading_date,
                 )
         except Exception as e:
             errors.append(f"submit_entries: {e}")
@@ -347,7 +350,8 @@ class EODOrchestrator:
                     "exits_triggered": exits_triggered,
                     "errors": errors,
                 },
-            )
+            ),
+            trading_date=trading_date,
         )
 
         return report
@@ -364,7 +368,8 @@ class EODOrchestrator:
                 None,
                 {"run_id": run_id, "trading_date": trading_date.isoformat()},
                 operator_visible=False,
-            )
+            ),
+            trading_date=trading_date,
         )
 
 

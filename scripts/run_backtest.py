@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 import uuid
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Ensure the repo root is on the path before importing project modules,
@@ -167,26 +169,130 @@ def _calculate_drawdown_dates(
 
 def _calc_trade_stats(
     reports: list[EODRunReport],
-) -> tuple[int, int, int, Decimal, Decimal, Decimal, Decimal]:
-    """Return (total, wins, losses, win_rate_pct, avg_win, avg_loss, profit_factor)."""
-    # Approximate: count exits as total trades; approved entries as wins
-    total_trades = sum(r.exits_triggered for r in reports)
-    wins = sum(r.entries_approved for r in reports)
-    wins = min(wins, total_trades)
-    losses = max(0, total_trades - wins)
+    audit_path: Path,
+) -> tuple[int, int, int, Decimal, Decimal, Decimal, Decimal, int]:
+    """Return trade statistics derived from the audit log.
+
+    Tuple: (total_closed, wins, losses, win_rate_pct, avg_win, avg_loss,
+            profit_factor, open_positions).
+
+    Reads the audit JSONL files to pair entry fills with exit fills per symbol
+    and compute real closed-trade P&L.
+    """
+    entry_order_ids: set[str] = set()
+    exit_order_ids: set[str] = set()
+    all_fills: list[dict[str, Any]] = []
+
+    if audit_path.exists():
+        for jsonl_file in sorted(audit_path.glob("audit_*.jsonl")):
+            try:
+                with open(jsonl_file) as fh:
+                    for raw_line in fh:
+                        raw_line = raw_line.strip()
+                        if not raw_line:
+                            continue
+                        try:
+                            event = json.loads(raw_line)
+                        except json.JSONDecodeError:
+                            continue
+                        event_type = event.get("event_type", "")
+                        payload = event.get("payload", {})
+                        if event_type == "entry_order_submitted":
+                            oid = payload.get("order_id")
+                            if oid:
+                                entry_order_ids.add(str(oid))
+                        elif event_type == "exit_order_submitted":
+                            oid = payload.get("order_id")
+                            if oid:
+                                exit_order_ids.add(str(oid))
+                        elif event_type == "order_filled":
+                            all_fills.append(
+                                {
+                                    "order_id": str(payload.get("order_id", "")),
+                                    "symbol": str(payload.get("symbol", "")),
+                                    "fill_price": Decimal(
+                                        str(payload.get("fill_price", "0"))
+                                    ),
+                                    "filled_qty": int(payload.get("filled_qty", 0)),  # type: ignore[arg-type]
+                                }
+                            )
+            except Exception:
+                continue
+
+    # Tag fills and group by symbol (preserving chronological order)
+    entry_fills_by_symbol: dict[str, list[dict[str, Any]]] = {}
+    exit_fills_by_symbol: dict[str, list[dict[str, Any]]] = {}
+    total_entry_fills = 0
+    total_exit_fills = 0
+
+    for fill in all_fills:
+        oid = str(fill["order_id"])
+        sym = str(fill["symbol"])
+        if oid in entry_order_ids:
+            entry_fills_by_symbol.setdefault(sym, []).append(fill)
+            total_entry_fills += 1
+        elif oid in exit_order_ids:
+            exit_fills_by_symbol.setdefault(sym, []).append(fill)
+            total_exit_fills += 1
+
+    # Pair entry/exit fills per symbol and compute P&L
+    wins = 0
+    losses = 0
+    gross_profit = Decimal("0")
+    gross_loss = Decimal("0")
+
+    for sym in set(entry_fills_by_symbol) | set(exit_fills_by_symbol):
+        entries = entry_fills_by_symbol.get(sym, [])
+        exits = exit_fills_by_symbol.get(sym, [])
+        for entry_fill, exit_fill in zip(entries, exits, strict=False):
+            entry_price = Decimal(str(entry_fill["fill_price"]))
+            exit_price = Decimal(str(exit_fill["fill_price"]))
+            qty = Decimal(
+                str(min(int(entry_fill["filled_qty"]), int(exit_fill["filled_qty"])))
+            )
+            pnl = (exit_price - entry_price) * qty
+            if pnl > 0:
+                wins += 1
+                gross_profit += pnl
+            else:
+                losses += 1
+                gross_loss += abs(pnl)
+
+    total_closed = wins + losses
+    open_positions = max(0, total_entry_fills - total_exit_fills)
 
     win_rate = (
-        (Decimal(str(wins)) / Decimal(str(total_trades)) * 100)
-        if total_trades > 0
+        (Decimal(str(wins)) / Decimal(str(total_closed)) * 100)
+        if total_closed > 0
         else Decimal("0")
     ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    # Per-trade P&L requires a richer trade log (future enhancement)
-    avg_win = Decimal("0")
-    avg_loss = Decimal("0")
-    profit_factor = Decimal("0")
+    avg_win = (
+        (gross_profit / wins).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if wins > 0
+        else Decimal("0")
+    )
+    avg_loss = (
+        (gross_loss / losses).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if losses > 0
+        else Decimal("0")
+    )
+    profit_factor = (
+        (gross_profit / gross_loss).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if gross_loss > 0
+        else Decimal("0")
+    )
 
-    return total_trades, wins, losses, win_rate, avg_win, avg_loss, profit_factor
+    return (
+        total_closed,
+        wins,
+        losses,
+        win_rate,
+        avg_win,
+        avg_loss,
+        profit_factor,
+        open_positions,
+    )
 
 
 def _regime_trade_counts(
@@ -228,7 +334,7 @@ def _build_equity_curve(
     return curve
 
 
-def _print_summary(report: BacktestReport) -> None:
+def _print_summary(report: BacktestReport, open_positions: int = 0) -> None:
     if report.all_reconciliations_clean:
         recon_label = "CLEAN"
     else:
@@ -249,9 +355,14 @@ def _print_summary(report: BacktestReport) -> None:
         f"  ({report.max_drawdown_start} to {report.max_drawdown_end})"
     )
     print(
-        f"  Win rate:           {report.win_rate_pct:.0f}%"
+        f"  Closed trades:      {report.total_trades}"
         f"  ({report.winning_trades} wins / {report.losing_trades} losses)"
     )
+    print(
+        f"  Open at end:        {open_positions}"
+        "  (positions never closed by simulation end)"
+    )
+    print(f"  Win rate:           {report.win_rate_pct:.0f}%")
     print(f"  Profit factor:      {report.profit_factor:.2f}")
     print()
     print("  Regime breakdown:")
@@ -275,7 +386,9 @@ def _print_summary(report: BacktestReport) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _run(start: date, end: date, initial_equity: Decimal) -> BacktestReport:
+async def _run(
+    start: date, end: date, initial_equity: Decimal
+) -> tuple[BacktestReport, int]:
     run_id = str(uuid.uuid4())
     repo_root = Path(__file__).resolve().parents[1]
     tmp_dir = repo_root / "data" / "backtest_tmp" / run_id
@@ -332,7 +445,8 @@ async def _run(start: date, end: date, initial_equity: Decimal) -> BacktestRepor
         avg_win,
         avg_loss,
         pf,
-    ) = _calc_trade_stats(reports)
+        open_positions,
+    ) = _calc_trade_stats(reports, tmp_dir / "audit")
     green_t, mixed_t, stressed_t = _regime_trade_counts(reports)
     days_with_errors = sum(1 for r in reports if not r.is_successful)
 
@@ -371,7 +485,7 @@ async def _run(start: date, end: date, initial_equity: Decimal) -> BacktestRepor
     result_path.write_text(report.model_dump_json(indent=2))
     print(f"Report saved -> {result_path}")
 
-    return report
+    return report, open_positions
 
 
 def main() -> None:
@@ -394,8 +508,10 @@ def main() -> None:
     end = _parse_date(args.end)
     initial_equity = Decimal(str(args.equity))
 
-    report = asyncio.run(_run(start=start, end=end, initial_equity=initial_equity))
-    _print_summary(report)
+    report, open_positions = asyncio.run(
+        _run(start=start, end=end, initial_equity=initial_equity)
+    )
+    _print_summary(report, open_positions)
 
 
 if __name__ == "__main__":
