@@ -58,3 +58,7 @@ apps/api/data/
 
 # Scratch files
 test_bedrock.py
+
+# Runtime data and logs
+data/
+logs/
