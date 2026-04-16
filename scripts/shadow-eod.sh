@@ -2,12 +2,15 @@
 # Shadow EOD — runs automatically at 3:45 PM IST via cron
 cd ~/trading-platform
 
+TRADING_DATE=${1:-$(date '+%Y-%m-%d')}
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S IST')
-LOG="~/trading-platform/logs/shadow-eod.log"
 
-echo "[$TIMESTAMP] Running shadow EOD..." >> ~/trading-platform/logs/shadow-eod.log
+echo "[$TIMESTAMP] Running shadow EOD for $TRADING_DATE..." >> ~/trading-platform/logs/shadow-eod.log
 
-RESULT=$(curl -s -X POST https://truegrowth.ninja/api/shadow/run-eod)
+RESULT=$(curl -s -X POST https://truegrowth.ninja/api/shadow/run-eod \
+  -H "Content-Type: application/json" \
+  -d "{\"trading_date\": \"$TRADING_DATE\"}")
+
 SUCCESS=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('success', False))" 2>/dev/null)
 
 echo "[$TIMESTAMP] Result: $RESULT" >> ~/trading-platform/logs/shadow-eod.log
