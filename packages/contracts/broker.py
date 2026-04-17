@@ -19,6 +19,7 @@ from .order_intent import OrderIntent
 from .order_state import OrderRecord
 from .portfolio import Position
 from .reconciliation import ReconciliationReport
+from .regime_state import RegimeState
 from .risk import PortfolioRisk
 
 
@@ -86,6 +87,7 @@ class ShadowRunReport(BaseModel):
 
     trading_date: date
     regime_state: str
+    regime: RegimeState | None = None
     candidates_scanned: int
     intents_generated: list[OrderIntent]
     orders_dry_run: list[OrderRecord]

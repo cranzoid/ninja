@@ -177,6 +177,10 @@ class AppState:
         self.live_run_history: list[LiveRunReport] = []
         self.alert_acknowledgments: dict[str, datetime] = {}
         self.config_history: list[ConfigSnapshot] = [config]
+        # Latest regime snapshot, written back by shadow/EOD runs so
+        # /api/regime/current reflects real assessments rather than the
+        # startup default.
+        self.latest_regime_state: RegimeState | None = None
 
     @classmethod
     async def initialize(
@@ -427,6 +431,8 @@ class AppState:
             raise RuntimeError("ShadowLiveRunner not initialized")
         report = await self.shadow_runner.run_shadow_eod(trading_date)
         self.shadow_run_history.append(report)
+        if report.regime is not None:
+            self.latest_regime_state = report.regime
         return report
 
     # --- Tracked wrappers around service calls ---
@@ -435,6 +441,7 @@ class AppState:
         """Run a single EOD cycle and record the report in history."""
         report = await self.orchestrator.run_eod(trading_date)
         self.eod_run_history.append(report)
+        self.latest_regime_state = report.regime
         self._capture_config_snapshot(report)
         return report
 
@@ -470,7 +477,14 @@ class AppState:
     # --- Convenience accessors ---
 
     def get_latest_regime(self) -> RegimeState:
-        """Return the most recent regime assessment, or a safe default."""
+        """Return the most recent regime assessment, or a safe default.
+
+        Prefers the explicitly-persisted ``latest_regime_state`` written back
+        by shadow or EOD runs; falls back to EOD history, then to a safe
+        default when the system has never run.
+        """
+        if self.latest_regime_state is not None:
+            return self.latest_regime_state
         if self.eod_run_history:
             return self.eod_run_history[-1].regime
         return _default_regime()

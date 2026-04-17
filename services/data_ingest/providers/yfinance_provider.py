@@ -22,7 +22,16 @@ class YFinanceMarketDataProvider(MarketDataProvider):
     for NSE-listed stocks on Yahoo Finance.
     """
 
+    _INDEX_MAP = {
+        "NIFTY50": "^NSEI",
+        "INDIAVIX": "^INDIAVIX",
+    }
+
     def _nse_ticker(self, symbol: str) -> str:
+        if symbol in self._INDEX_MAP:
+            return self._INDEX_MAP[symbol]
+        if symbol.startswith("^"):
+            return symbol
         return f"{symbol}.NS"
 
     async def fetch_ohlcv(

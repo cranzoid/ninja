@@ -99,7 +99,7 @@ class ShadowLiveRunner:
         regime = _default_regime()
         lookback_start = trading_date - timedelta(days=400)
 
-        # Step 1: Load data
+        # Step 1: Load universe data
         raw_data: dict[str, pd.DataFrame] = {}
         try:
             for symbol in self._universe:
@@ -108,26 +108,78 @@ class ShadowLiveRunner:
                 )
                 if not df.empty:
                     raw_data[symbol] = df
+            logger.info(
+                "Shadow: loaded universe data for %d/%d symbols: %s",
+                len(raw_data), len(self._universe), sorted(raw_data),
+            )
         except Exception as e:
             errors.append(f"data_load: {e}")
-            logger.exception("Shadow: Failed to load data")
+            logger.exception("Shadow: Failed to load universe data")
 
-        # Step 2: Build features
+        # Step 1b: Load NIFTY50 index and VIX (best-effort; missing either
+        # degrades the regime assessment but must not fail the whole run).
+        nifty_raw = pd.DataFrame()
+        vix_level: Decimal | None = None
+        try:
+            nifty_raw = await self._data_provider.fetch_ohlcv(
+                "NIFTY50", lookback_start, trading_date
+            )
+            logger.info(
+                "Shadow: NIFTY50 rows fetched=%d (last_close=%s)",
+                len(nifty_raw),
+                None if nifty_raw.empty else nifty_raw.iloc[-1]["close"],
+            )
+        except Exception as e:
+            errors.append(f"nifty50_load: {e}")
+            logger.exception("Shadow: Failed to load NIFTY50")
+        try:
+            vix_df = await self._data_provider.fetch_ohlcv(
+                "INDIAVIX", lookback_start, trading_date
+            )
+            if not vix_df.empty:
+                vix_level = Decimal(str(round(float(vix_df.iloc[-1]["close"]), 2)))
+            logger.info(
+                "Shadow: VIX rows fetched=%d (vix_level=%s)",
+                len(vix_df), vix_level,
+            )
+        except Exception as e:
+            errors.append(f"vix_load: {e}")
+            logger.exception("Shadow: Failed to load INDIAVIX")
+
+        # Step 2: Build features (universe + NIFTY50)
         featured_data: dict[str, pd.DataFrame] = {}
+        nifty_featured = pd.DataFrame()
         try:
             for symbol, df in raw_data.items():
                 featured_data[symbol] = build_features(df)
+            if not nifty_raw.empty:
+                nifty_featured = build_features(nifty_raw)
         except Exception as e:
             errors.append(f"build_features: {e}")
             logger.exception("Shadow: Failed to build features")
 
         # Step 3: Assess regime
         try:
-            nifty_data = featured_data.get(
-                "NIFTY50",
-                next(iter(featured_data.values()), pd.DataFrame()),
+            if nifty_featured.empty:
+                logger.warning(
+                    "Shadow: NIFTY50 data unavailable — regime trend "
+                    "will default to neutral. Check yfinance reachability."
+                )
+            regime = assess_regime(nifty_featured, featured_data, vix_level)
+            logger.info(
+                "Shadow: regime assessed class=%s trend=%s "
+                "breadth_50dma=%s%% breadth_200dma=%s%% vix=%s vix_state=%s "
+                "gaps_5d=%s sizing=%s rationale=%r",
+                regime.regime_class.value,
+                regime.nifty50_trend,
+                regime.breadth_above_50dma_pct,
+                regime.breadth_above_200dma_pct,
+                regime.vix_level,
+                regime.vix_state,
+                regime.gap_frequency_5d,
+                regime.sizing_multiplier,
+                regime.rationale,
             )
-            regime = assess_regime(nifty_data, featured_data, None)
         except Exception as e:
             errors.append(f"regime_assessment: {e}")
             logger.exception("Shadow: Failed to assess regime")
@@ -202,6 +254,7 @@ class ShadowLiveRunner:
         return ShadowRunReport(
             trading_date=trading_date,
             regime_state=regime.regime_class.value,
+            regime=regime,
             candidates_scanned=candidates_scanned,
             intents_generated=intents_generated,
             orders_dry_run=orders_dry_run,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
@@ -11,6 +12,8 @@ import pandas as pd
 
 from packages.contracts.enums import RegimeClass
 from packages.contracts.regime_state import RegimeState
+
+logger = logging.getLogger(__name__)
 
 
 def assess_regime(
@@ -29,6 +32,13 @@ def assess_regime(
     - Sector concentration (std of returns)
     - Correlation (average pairwise correlation)
     """
+    logger.info(
+        "Regime inputs: nifty_rows=%d universe_symbols=%d vix_level=%s",
+        len(nifty50_data),
+        len(universe_data),
+        vix_level,
+    )
+
     # 1. NIFTY 50 trend
     nifty_trend = _assess_nifty_trend(nifty50_data)
 
