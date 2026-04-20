@@ -5,7 +5,14 @@
       "Bash(python3 -m pytest tests/services/test_rule_engine.py -x --tb=short)",
       "Bash(grep -n \"class.*Response\\\\|class ComplianceReport\\\\|class BrokerHealth\" /Users/cranzoid/indian-trading-platform/packages/contracts/*.py)",
       "Bash(ssh zerodha:*)",
-      "Bash(uv run:*)"
+      "Bash(uv run:*)",
+      "Bash(.venv/bin/python -m pytest tests/test_phase6_shadow_runner.py -x -q)",
+      "Bash(.venv/bin/python -m pytest tests/test_phase6_api_endpoints.py tests/test_patch8_fixes.py -x -q)",
+      "Bash(.venv/bin/python -m pytest tests/ -x -q --ignore=tests/test_phase7_live_risk_limits.py)",
+      "Bash(.venv/bin/python -m pytest tests/ -x -q --ignore=tests/test_phase7_live_risk_limits.py --ignore=tests/test_phase7_zerodha_adapter.py)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }
